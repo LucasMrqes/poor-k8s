@@ -1,0 +1,54 @@
+name: test
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+jobs:
+  master:
+    runs-on: ubuntu-latest
+    steps:
+      - name: install-tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_API_KEY }}
+      - name: install-k3s
+        run: |
+          curl -Lo /usr/local/bin/k3s https://github.com/k3s-io/k3s/releases/download/v1.26.5+k3s1/k3s
+          chmod a+x /usr/local/bin/k3s
+      - name: start-k3s in background
+        run: |
+          K3S_EXTERNAL_IP=$(sudo tailscale ip -4)
+          sudo k3s server --tls-san $K3S_EXTERNAL_IP --kube-apiserver-arg service-node-port-range=1-65000 --kube-apiserver-arg advertise-address=$K3S_EXTERNAL_IP --kube-apiserver-arg external-hostname=$K3S_EXTERNAL_IP &
+          sleep 10
+
+      - name: poor-k8s-install token
+        id: poor-k8s
+        uses: getsentry/action-github-app-token@v3
+        with:
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Get IP Addresses
+        id: ip
+        uses: candidob/get-runner-ip@v1.0.0
+
+      - name: Trigger Second Workflow
+        run: |
+          export GH_TOKEN=${{ steps.poor-k8s.outputs.token }}
+          gh workflow run nodes.yaml --repo $GITHUB_REPOSITORY --ref main -f k3sToken=$(sudo cat /var/lib/rancher/k3s/server/node-token) -f k3sIp=$(sudo tailscale ip -4)
+      - name: Echo & set kubeconfig as kubectl default
+        run: |
+          sudo cat /etc/rancher/k3s/k3s.yaml
+          mkdir -p ~/.kube
+          sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sudo chown $USER:$USER ~/.kube/config
+      - name: loop kubectl get nodes
+        run: |
+          while true; do
+            kubectl get nodes
+            sleep 5
+          done
+      - name: Sleep for 1h -- the cluster is now working
+        run: sleep 3600
+

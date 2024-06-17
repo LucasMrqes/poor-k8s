@@ -1,0 +1,30 @@
+name: test
+on: 
+  workflow_dispatch:
+    inputs:
+      k3sIp:
+        description: 'URL of the main node'
+        required: true
+        type: string
+      k3sToken:
+        description: 'Token required to join the cluster'
+        required: true
+        type: string
+jobs:
+  nodes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: install-tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_API_KEY }}
+      - name: install-k3s
+        run: |
+          curl -Lo /usr/local/bin/k3s https://github.com/k3s-io/k3s/releases/download/v1.26.5+k3s1/k3s
+          chmod a+x /usr/local/bin/k3s
+      - name: connect-to-main-node
+        run: |
+          sudo k3s agent --server https://${{ github.event.inputs.k3sIp }}:6443 --token ${{ github.event.inputs.k3sToken }}
+      - name: Sleep for 1h -- the cluster is now working
+        run: sleep 3600
+
